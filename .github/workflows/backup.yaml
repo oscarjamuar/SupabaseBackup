@@ -2,12 +2,12 @@ name: supabase-backup
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev_]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev_]
   workflow_dispatch:
   schedule:
-    - cron: "0 0 * * *" # Runs every day at midnight
+    - cron: "5 4 * * sun" # Runs every sunday at 04 05
 
 env:
   BACKUP_ENABLED: true
