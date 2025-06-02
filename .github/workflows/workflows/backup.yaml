@@ -1,46 +1,61 @@
-name: Supabase Database Backup
+name: supabase-backup
 
 on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
   schedule:
-    - cron: "*/2 * * * *"  # Runs every 2 minutes
-  workflow_dispatch:  # Allows manual trigger
+    - cron: "0 0 * * *" # Runs every day at midnight
+
+env:
+  BACKUP_ENABLED: true
 
 jobs:
-  backup:
+  run_db_backup:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      BACKUP_ENABLED: ${{ vars.BACKUP_ENABLED }} # Repository variable (true or false)
     steps:
+      - name: Check if backups are enabled
+        run: |
+          if [ "$BACKUP_ENABLED" != "true" ]; then
+            echo "Backups are disabled. Exiting workflow."
+            exit 0
+          fi
+
       - name: Checkout repository
+        if: env.BACKUP_ENABLED == 'true'
         uses: actions/checkout@v3
 
       - name: Setup Supabase CLI
+        if: env.BACKUP_ENABLED == 'true'
         uses: supabase/setup-cli@v1
         with:
           version: latest
 
-      - name: Create backup directory
-        run: |
-          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-          mkdir -p backups/$TIMESTAMP
+      - name: Create timestamp folder
+        if: env.BACKUP_ENABLED == 'true'
+        run: mkdir -p prisma/backups
 
-      - name: Backup database
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: |
-          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-          # Full database backup
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f backups/$TIMESTAMP/full_backup.sql
-          
-          # Create metadata
-          echo "{
-            \"timestamp\": \"$TIMESTAMP\",
-            \"backup_type\": \"full\",
-            \"database_url\": \"$SUPABASE_DB_URL\"
-          }" > backups/$TIMESTAMP/metadata.json
+      - name: Backup roles
+        if: env.BACKUP_ENABLED == 'true'
+        run: supabase db dump --db-url "$SUPABASE_DB_URL" -f prisma/backups/roles.sql --role-only
 
-      - name: Commit and push backup
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add backups/
-          git commit -m "Database backup $(date +'%Y-%m-%d %H:%M:%S')"
-          git push
+      - name: Backup schema
+        if: env.BACKUP_ENABLED == 'true'
+        run: supabase db dump --db-url "$SUPABASE_DB_URL" -f prisma/backups/schema.sql
+
+      - name: Backup data
+        if: env.BACKUP_ENABLED == 'true'
+        run: supabase db dump --db-url "$SUPABASE_DB_URL" -f prisma/backups/data.sql --data-only --use-copy
+
+      - name: Commit backups
+        if: env.BACKUP_ENABLED == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Supabase backup
